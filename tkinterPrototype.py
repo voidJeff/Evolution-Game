@@ -13,7 +13,7 @@ class Food(object):
 		return 'food'
 
 	# View
-	def draw(self, canvas, color="green"):
+	def draw(self, canvas, color="green1"):
 		canvas.create_oval(self.cx - self.r, self.cy - self.r,
 						   self.cx + self.r, self.cy + self.r,
 						   fill=color)
@@ -45,7 +45,10 @@ class Creature(object):
 	# View
 	def draw(self, canvas):
 		# Draws a cool-looking triangle-ish shape
-		size = 20
+		if self.health > 100: health = 100
+		else: health = self.health
+		color = getCreatureColor(health)
+		size = 15
 		direction = math.radians(self.direction)
 		angleChange = 2*math.pi/3
 		numPoints = 3
@@ -55,19 +58,26 @@ class Creature(object):
 						   self.cy - size*math.sin(direction + point*angleChange)))
 		points.insert(numPoints-1, (self.cx, self.cy))
 		
-		canvas.create_polygon(points, fill="white")
+		canvas.create_polygon(points, fill=color)
 
 	# Controller
 	def rotate(self, numDegrees):
 		self.direction += numDegrees
 
-	def detectFood(self, food):
-		if distance(self.cx, self.cy, food.cx, food.cy) < self.fov + food.r:
-			foodAngle = math.atan2(food.cy-self.cy, food.cx-self.cx)
-			degrees = abs(math.radians(self.direction) - math.radians(self.direction))
-			self.rotate(degrees)
+	def detectFood(self, foodList):
+		for foodI in range(len(foodList)):
+			food = foodList[foodI]
+			if distance(self.cx, self.cy, food.cx, food.cy) < self.fov + food.r:
+				foodAngle = math.atan2(food.cy-self.cy, food.cx-self.cx)
+				if foodAngle < math.radians(self.direction):
+					self.rotate(random.randint(-2,0)/2)
+					return foodI
+				elif foodAngle > math.radians(self.direction):
+					self.rotate(random.randint(0,2)/2)
+					return foodI
 
 	def move(self):
+		self.rotate(random.randint(-1,1)/3)
 		self.cx += math.cos(math.radians(self.direction))*self.speed
 		self.cy -= math.sin(math.radians(self.direction))*self.speed
 
@@ -120,6 +130,7 @@ def init(data):
 	data.foodList = []
 	data.timerCount = 0
 	data.rotateAngle = 15
+	data.tracking = {}
 #############################
 def mousePressed(event, data):
 	if (data.mode == "splashScreen"): splashScreenMousePressed(event, data)
@@ -177,16 +188,40 @@ def playGameKeyPressed(event, data):
 
 def playGameTimerFired(data):
 	# TODO: add code here
-	if data.foodCount < 10: 
+	if data.foodCount < 5: 
 		createNewFoods(data)
 
 	for creature in data.creatureList:
+		if creature.health > 0: creature.health -= 0.1
+		if creature.health > 200:
+			creature.health -= 150
+			spawnNewCreatures(data, creature.cx, creature.cy)
+		creatureI = data.creatureList.index(creature) 
 		creature.reactToWallHit(data.width, data.height)
 		creature.move()
-		for food in data.foodList:
-			creature.detectFood(food)
+		target = data.tracking.get(creatureI, None)
+		if target == None:
+			data.tracking[creatureI] = creature.detectFood(data.foodList)
+		else:
+			try: creature.detectFood([data.foodList[data.tracking[creatureI]]])
+			except: data.tracking[creatureI] = creature.detectFood(data.foodList)
 	hitDetection(data)
 
+	i = 0
+	while i < len(data.creatureList):
+		creature = data.creatureList[i]
+		if creature.health <= 0:
+			data.creatureList.remove(creature)
+		else:
+			i += 1
+	if data.creatureList == []: init(data)
+
+
+def playGameMousePressed(event, data):
+	rLow, rHigh = 10, 40
+	r = random.randint(rLow, rHigh)
+	data.foodList.append(Food(event.x, event.y, r))
+	data.foodCount += 1
 
 def playGameRedrawAll(canvas, data):
 	canvas.create_rectangle(0, 0, data.width, data.height, fill="black")
@@ -194,7 +229,7 @@ def playGameRedrawAll(canvas, data):
 		creature.draw(canvas)
 	# TODO: add code here
 	canvas.create_text(data.width/2, data.height, anchor="s", fill="yellow",
-					   font="Arial 24 bold", text="Score: " + str(data.score))
+					   font="Arial 24 bold", text="Food Eaten: " + str(data.score))
 	for food in data.foodList:
 		food.draw(canvas)
 #####################################################
@@ -222,12 +257,12 @@ def helpRedrawAll(canvas, data):
 # creates either a new regular food or a shrinking food with 50/50
 # chance every 2 seconds
 def spawnNewCreatures(data, cx, cy):
-	for i in range(5):
+	for i in range(4):
 		data.creatureList.append(Creature(cx, cy, 5, 100, 200))
 
 def createNewFoods(data):
 	data.timerCount += 1
-	if data.timerCount == 10:
+	if data.timerCount == 20:
 		data.foodList.append(makeFood(data))
 		data.foodCount += 1	
 		data.timerCount = 0
@@ -266,8 +301,11 @@ def detectRegularCollision(data):
 		for creature in data.creatureList:
 			if creature.collidesWithFood(food):
 				hit = True
+				creature.health += 50
 				data.foodCount -= 1
 				data.score += 1
+				creatureI = data.creatureList.index(creature) 
+				data.tracking[creatureI] = None
 		if hit: data.foodList.remove(food)
 		else: index += 1
 		
@@ -293,7 +331,12 @@ def detectExplosiveCollision(data):
 def distance(a, b, c, d):
 	return math.sqrt((a-c)**2 + (b-d)**2)
 
+def color(r, g, b):
+	return "#%02x%02x%02x" % (r, g, b)
 
+def getCreatureColor(health): 
+	rgb = int(255 * health / 100)
+	return color(rgb, rgb, rgb)
 
 
 def runFoods(width=300, height=300):
